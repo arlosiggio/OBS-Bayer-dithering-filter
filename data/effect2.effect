@@ -1,0 +1,80 @@
+#define mod(x, y) (x - y * floor(x / y))
+
+uniform float4x4 ViewProj;
+uniform float4 color = {1.0, 1.0, 1.0, 1.0};
+uniform texture2d image;
+
+struct SolidVertInOut {
+	float4 pos : POSITION;
+	float2 uv  : TEXCOORD0;
+};
+
+sampler_state textureSampler {
+	Filter    = Linear;
+	AddressU  = Clamp;
+	AddressV  = Clamp;
+};
+
+float4 SampleTexture(float2 uv)
+{
+	return image.Sample(textureSampler, uv);
+}
+
+SolidVertInOut VSSolid(SolidVertInOut vert_in)
+{
+	SolidVertInOut vert_out;
+	vert_out.pos = mul(float4(vert_in.pos.xyz, 1.0), ViewProj);
+	vert_out.uv  = vert_in.uv;
+	return vert_out;
+}
+
+float find_closest(int x, int y, float c0)
+{
+
+	int dither[8][8] = {
+		{ 0, 32, 8, 40, 2, 34, 10, 42}, /* 8x8 Bayer ordered dithering */
+		{48, 16, 56, 24, 50, 18, 58, 26}, /* pattern. Each input pixel */
+		{12, 44, 4, 36, 14, 46, 6, 38}, /* is scaled to the 0..63 range */
+		{60, 28, 52, 20, 62, 30, 54, 22}, /* before looking in this table */
+		{ 3, 35, 11, 43, 1, 33, 9, 41}, /* to determine the action. */
+		{51, 19, 59, 27, 49, 17, 57, 25},
+		{15, 47, 7, 39, 13, 45, 5, 37},
+		{63, 31, 55, 23, 61, 29, 53, 21}
+	};
+
+	float limit = 0.0;
+	if(x < 8)
+	{
+		limit = (dither[x][y]+1)/64.0;
+	}
+
+
+	if(c0 < limit)
+		return 0.0;
+	return 1.0;
+}
+
+float4 PSSolid(SolidVertInOut vert_in) : TARGET
+{
+	float4 basecol = image.Sample(textureSampler,vert_in.uv);
+	float4 lum = float4(0.299, 0.587, 0.114, 0.0);
+	float2 xy = vert_in.uv;
+	float Width;
+    float Height;
+	image.GetDimensions(Width,Height);
+	int x = int(mod(xy.x*Width, 8));
+	int y = int(mod(xy.y*Height, 8));
+
+	float grayscale = find_closest(x,y,dot(basecol,lum));
+	
+	return float4(grayscale,grayscale,grayscale,basecol.a);
+}
+
+technique Draw
+{
+	pass
+	{
+		vertex_shader = VSSolid(vert_in);
+		pixel_shader  = PSSolid(vert_in);
+	}
+}
